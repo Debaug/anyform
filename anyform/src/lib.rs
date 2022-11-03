@@ -76,7 +76,7 @@ impl<T> Owned<T> {
 }
 
 /// A type exposing shared `&T` access to a contained or referenced value.
-pub enum Immut<'a, T> {
+pub enum Shared<'a, T> {
     Plain(T),
     Box(Box<T>),
     Rc(Rc<T>),
@@ -84,7 +84,7 @@ pub enum Immut<'a, T> {
     Ref(&'a T),
 }
 
-impl<T> AsRef<T> for Immut<'_, T> {
+impl<T> AsRef<T> for Shared<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
             Self::Plain(plain) => plain,
@@ -96,37 +96,37 @@ impl<T> AsRef<T> for Immut<'_, T> {
     }
 }
 
-impl<T> Borrow<T> for Immut<'_, T> {
+impl<T> Borrow<T> for Shared<'_, T> {
     fn borrow(&self) -> &T {
         self.as_ref()
     }
 }
 
-impl<T> From<T> for Immut<'_, T> {
+impl<T> From<T> for Shared<'_, T> {
     fn from(plain: T) -> Self {
         Self::Plain(plain)
     }
 }
 
-impl<T> From<Box<T>> for Immut<'_, T> {
+impl<T> From<Box<T>> for Shared<'_, T> {
     fn from(boxed: Box<T>) -> Self {
         Self::Box(boxed)
     }
 }
 
-impl<T> From<Rc<T>> for Immut<'_, T> {
+impl<T> From<Rc<T>> for Shared<'_, T> {
     fn from(rc: Rc<T>) -> Self {
         Self::Rc(rc)
     }
 }
 
-impl<T> From<Arc<T>> for Immut<'_, T> {
+impl<T> From<Arc<T>> for Shared<'_, T> {
     fn from(arc: Arc<T>) -> Self {
         Self::Arc(arc)
     }
 }
 
-impl<'a, T> From<&'a T> for Immut<'a, T> {
+impl<'a, T> From<&'a T> for Shared<'a, T> {
     fn from(borrow: &'a T) -> Self {
         Self::Ref(borrow)
     }
