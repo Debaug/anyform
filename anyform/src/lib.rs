@@ -1,6 +1,8 @@
-use std::{borrow::{Borrow, BorrowMut}, rc::Rc, sync::Arc};
+use std::{borrow::{Borrow, BorrowMut}, rc::Rc, sync::{Arc, RwLock, Mutex}, cell::RefCell};
 
-/// A type representing fully owned data, i. e.:
+/// A type representing fully owned data.
+/// 
+/// More precisely:
 ///  - Any shared reference `&Owned<T>` can be transformed into `&T`;
 ///  - Any mutable reference `&mut Owned<T>` can be transformed into `&mut T`;
 ///  - The contained value can be infallibly retrieved, consuming the `Owned` object.
@@ -127,5 +129,67 @@ impl<T> From<Arc<T>> for Immut<'_, T> {
 impl<'a, T> From<&'a T> for Immut<'a, T> {
     fn from(borrow: &'a T) -> Self {
         Self::Ref(borrow)
+    }
+}
+
+/// A type that exposes exclusive access to a contained value, without interior mutability.
+/// 
+/// More precisely:
+///  - Any shared reference `&Mut<T>` may be converted to a `&T`;
+///  - Any mutable reference `&mut Mut<T>` may be converted to a `&mut T`.
+pub enum Mutable<'a, T> {
+    Plain(T),
+    Box(Box<T>),
+    RefMut(&'a mut T),
+}
+
+impl<T> AsRef<T> for Mutable<'_, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::Plain(plain) => plain,
+            Self::Box(boxed) => boxed,
+            Self::RefMut(ref_mut) => ref_mut,
+        }
+    }
+}
+
+impl<T> AsMut<T> for Mutable<'_, T> {
+    fn as_mut(&mut self) -> &mut T {
+        match self {
+            Self::Plain(plain) => plain,
+            Self::Box(boxed) => boxed,
+            Self::RefMut(ref_mut) => ref_mut,
+        }
+    }
+}
+
+impl<T> Borrow<T> for Mutable<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T> BorrowMut<T> for Mutable<'_, T> {
+    fn borrow_mut(&mut self) -> &mut T {
+        self.as_mut()
+    }
+}
+
+
+impl<T> From<T> for Mutable<'_, T> {
+    fn from(plain: T) -> Self {
+        Self::Plain(plain)
+    }
+}
+
+impl<T> From<Box<T>> for Mutable<'_, T> {
+    fn from(boxed: Box<T>) -> Self {
+        Self::Box(boxed)
+    }
+}
+
+impl<'a, T> From<&'a mut T> for Mutable<'a, T> {
+    fn from(ref_mut: &'a mut T) -> Self {
+        Self::RefMut(ref_mut)
     }
 }
