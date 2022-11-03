@@ -1,8 +1,9 @@
-use std::borrow::{Borrow, BorrowMut};
+use std::{borrow::{Borrow, BorrowMut}, rc::Rc, sync::Arc};
 
-/// A type exposing representing fully owned data, i. e.:
+/// A type representing fully owned data, i. e.:
 ///  - Any shared reference `&Owned<T>` can be transformed into `&T`;
-///  - Any mutable reference `&mut Owned<T>` can be transformed into `&mut T`.
+///  - Any mutable reference `&mut Owned<T>` can be transformed into `&mut T`;
+///  - The contained value can be infallibly retrieved, consuming the `Owned` object.
 /// With [`std`]/[`alloc`], these exact restrictions exist with two types: either `T` itself, or [`Box`]`<T>`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Owned<T> {
@@ -69,5 +70,62 @@ impl<T> Owned<T> {
             Self::Plain(plain) => Box::new(plain),
             Self::Box(boxed) => boxed,
         }
+    }
+}
+
+/// A type exposing shared `&T` access to a contained or referenced value.
+pub enum Immut<'a, T> {
+    Plain(T),
+    Box(Box<T>),
+    Rc(Rc<T>),
+    Arc(Arc<T>),
+    Ref(&'a T),
+}
+
+impl<T> AsRef<T> for Immut<'_, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::Plain(plain) => plain,
+            Self::Box(boxed) => boxed,
+            Self::Rc(rc) => rc,
+            Self::Arc(arc) => arc,
+            Self::Ref(borrow) => borrow,  
+        }
+    }
+}
+
+impl<T> Borrow<T> for Immut<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T> From<T> for Immut<'_, T> {
+    fn from(plain: T) -> Self {
+        Self::Plain(plain)
+    }
+}
+
+impl<T> From<Box<T>> for Immut<'_, T> {
+    fn from(boxed: Box<T>) -> Self {
+        Self::Box(boxed)
+    }
+}
+
+impl<T> From<Rc<T>> for Immut<'_, T> {
+    fn from(rc: Rc<T>) -> Self {
+        Self::Rc(rc)
+    }
+}
+
+impl<T> From<Arc<T>> for Immut<'_, T> {
+    fn from(arc: Arc<T>) -> Self {
+        Self::Arc(arc)
+    }
+}
+
+impl<'a, T> From<&'a T> for Immut<'a, T> {
+    fn from(borrow: &'a T) -> Self {
+        Self::Ref(borrow)
     }
 }
