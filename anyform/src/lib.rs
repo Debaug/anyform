@@ -79,6 +79,7 @@ impl<T> Owned<T> {
 }
 
 /// A type exposing shared `&T` access to a contained or referenced value.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Shared<'a, T> {
     Plain(T),
     Box(Box<T>),
@@ -140,6 +141,7 @@ impl<'a, T> From<&'a T> for Shared<'a, T> {
 /// More precisely:
 ///  - Any shared reference `&Mut<T>` may be converted to a `&T`;
 ///  - Any mutable reference `&mut Mut<T>` may be converted to a `&mut T`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mutable<'a, T> {
     Plain(T),
     Box(Box<T>),
@@ -197,6 +199,7 @@ impl<'a, T> From<&'a mut T> for Mutable<'a, T> {
 }
 
 /// A type exposing shared `&T` access to a contained or referenced value, whose size is not known.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SharedUnsized<'a, T: ?Sized> {
     Box(Box<T>),
     Rc(Rc<T>),
@@ -251,6 +254,7 @@ impl<'a, T: ?Sized> From<&'a T> for SharedUnsized<'a, T> {
 /// More precisely:
 ///  - Any shared reference `&Mut<T>` may be converted to a `&T`;
 ///  - Any mutable reference `&mut Mut<T>` may be converted to a `&mut T`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MutableUnsized<'a, T: ?Sized> {
     Box(Box<T>),
     RefMut(&'a mut T),
