@@ -214,7 +214,6 @@ impl<'a, T: ?Sized> From<&'a mut T> for MutableUnsized<'a, T> {
 
 pub enum ReadLock<'a, T> {
     Plain(T),
-    Box(Box<T>),
     Rc(Rc<T>),
     RcRefCell(Rc<RefCell<T>>),
     Arc(Arc<T>),
@@ -234,7 +233,6 @@ impl<T> ReadLock<'_, T> {
     pub fn lock(&self) -> ReadLockGuard<'_, T> {
         match self {
             Self::Plain(plain) => ReadLockGuard::Ref(plain),
-            Self::Box(boxed) => ReadLockGuard::Ref(boxed),
             Self::Rc(rc) => ReadLockGuard::Ref(rc),
             Self::RcRefCell(rc_ref_cell) => ReadLockGuard::RefGuard(rc_ref_cell.as_ref().borrow()),
             Self::Arc(arc) => ReadLockGuard::Ref(arc),
@@ -254,7 +252,6 @@ impl<T> ReadLock<'_, T> {
 
 pub enum WriteLock<'a, T> {
     Plain(T),
-    Box(Box<T>),
     RcRefCell(Rc<RefCell<T>>),
     ArcMutex(Arc<Mutex<T>>),
     ArcRwLock(Arc<RwLock<T>>),
