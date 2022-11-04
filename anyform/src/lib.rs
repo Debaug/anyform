@@ -1,7 +1,8 @@
 use std::{
     borrow::{Borrow, BorrowMut},
+    cell::{Ref, RefCell},
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
 };
 
 /// A type representing fully owned data.
@@ -9,7 +10,7 @@ use std::{
 /// More precisely:
 ///  - Any shared reference `&Owned<T>` may be converted to `&T`;
 ///  - Any mutable reference `&mut Owned<T>` may be converted to `&mut T`;
-///  - The contained value can be infallibly retrieved, consuming the `Owned` object.
+///  - The contained value can be cheaply retrieved, consuming the `Owned` object.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Owned<T> {
     Plain(T),
@@ -300,4 +301,53 @@ impl<'a, T: ?Sized> From<&'a mut T> for MutableUnsized<'a, T> {
     fn from(ref_mut: &'a mut T) -> Self {
         Self::RefMut(ref_mut)
     }
+}
+
+pub enum ReadLock<'a, T> {
+    Plain(T),
+    Box(Box<T>),
+    Rc(Rc<T>),
+    RcRefCell(Rc<RefCell<T>>),
+    Arc(Arc<T>),
+    ArcMutex(Arc<Mutex<T>>),
+    ArcRwLock(Arc<RwLock<T>>),
+    Ref(&'a T),
+}
+
+pub enum ReadLockGuard<'a, T> {
+    RefGuard(Ref<'a, T>),
+    MutexGuard(MutexGuard<'a, T>),
+    RwLockGuard(RwLockReadGuard<'a, T>),
+    Ref(&'a T),
+}
+
+impl<T> ReadLock<'_, T> {
+    pub fn lock(&self) -> ReadLockGuard<'_, T> {
+        match self {
+            Self::Plain(plain) => ReadLockGuard::Ref(plain),
+            Self::Box(boxed) => ReadLockGuard::Ref(boxed),
+            Self::Rc(rc) => ReadLockGuard::Ref(rc),
+            Self::RcRefCell(rc_ref_cell) => ReadLockGuard::RefGuard(rc_ref_cell.as_ref().borrow()),
+            Self::Arc(arc) => ReadLockGuard::Ref(arc),
+            Self::ArcMutex(arc_mutex) => ReadLockGuard::MutexGuard(
+                arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"),
+            ),
+            Self::ArcRwLock(arc_rw_lock) => ReadLockGuard::RwLockGuard(
+                arc_rw_lock
+                    .as_ref()
+                    .read()
+                    .expect("failed to lock `std::sync::RwLock`"),
+            ),
+            Self::Ref(borrow) => ReadLockGuard::Ref(borrow),
+        }
+    }
+}
+
+pub enum WriteLock<'a, T> {
+    Plain(T),
+    Box(Box<T>),
+    RcRefCell(Rc<RefCell<T>>),
+    ArcMutex(Arc<Mutex<T>>),
+    ArcRwLock(Arc<RwLock<T>>),
+    RefMut(&'a mut T),
 }
