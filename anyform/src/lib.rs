@@ -1,8 +1,8 @@
 use std::{
     borrow::{Borrow, BorrowMut},
-    cell::{Ref, RefCell},
+    cell::{Ref, RefCell, RefMut},
     rc::Rc,
-    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 /// A type exposing shared `&T` access to a contained or referenced value.
@@ -58,15 +58,15 @@ impl<'a, T> From<&'a T> for Shared<'a, T> {
 /// A type that exposes exclusive access to some value, without interior mutability.
 ///
 /// More precisely:
-///  - Any shared reference `&Mut<T>` may be converted to a `&T`;
-///  - Any mutable reference `&mut Mut<T>` may be converted to a `&mut T`.
+///  - Any shared reference `&Exclusive<T>` may be converted to a `&T`;
+///  - Any mutable reference `&mut Exclusive<T>` may be converted to a `&mut T`.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Mutable<'a, T> {
+pub enum Exclusive<'a, T> {
     Plain(T),
     RefMut(&'a mut T),
 }
 
-impl<T> AsRef<T> for Mutable<'_, T> {
+impl<T> AsRef<T> for Exclusive<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
             Self::Plain(plain) => plain,
@@ -75,7 +75,7 @@ impl<T> AsRef<T> for Mutable<'_, T> {
     }
 }
 
-impl<T> AsMut<T> for Mutable<'_, T> {
+impl<T> AsMut<T> for Exclusive<'_, T> {
     fn as_mut(&mut self) -> &mut T {
         match self {
             Self::Plain(plain) => plain,
@@ -84,25 +84,25 @@ impl<T> AsMut<T> for Mutable<'_, T> {
     }
 }
 
-impl<T> Borrow<T> for Mutable<'_, T> {
+impl<T> Borrow<T> for Exclusive<'_, T> {
     fn borrow(&self) -> &T {
         self.as_ref()
     }
 }
 
-impl<T> BorrowMut<T> for Mutable<'_, T> {
+impl<T> BorrowMut<T> for Exclusive<'_, T> {
     fn borrow_mut(&mut self) -> &mut T {
         self.as_mut()
     }
 }
 
-impl<T> From<T> for Mutable<'_, T> {
+impl<T> From<T> for Exclusive<'_, T> {
     fn from(plain: T) -> Self {
         Self::Plain(plain)
     }
 }
 
-impl<'a, T> From<&'a mut T> for Mutable<'a, T> {
+impl<'a, T> From<&'a mut T> for Exclusive<'a, T> {
     fn from(ref_mut: &'a mut T) -> Self {
         Self::RefMut(ref_mut)
     }
@@ -162,15 +162,15 @@ impl<'a, T: ?Sized> From<&'a T> for SharedUnsized<'a, T> {
 /// mutability.
 ///
 /// More precisely:
-///  - Any shared reference `&Mut<T>` may be converted to a `&T`;
-///  - Any mutable reference `&mut Mut<T>` may be converted to a `&mut T`.
+///  - Any shared reference `&ExclusiveUnsized<T>` may be converted to a `&T`;
+///  - Any mutable reference `&mut ExclusiveUnsized<T>` may be converted to a `&mut T`.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MutableUnsized<'a, T: ?Sized> {
+pub enum ExclusiveUnsized<'a, T: ?Sized> {
     Box(Box<T>),
     RefMut(&'a mut T),
 }
 
-impl<T: ?Sized> AsRef<T> for MutableUnsized<'_, T> {
+impl<T: ?Sized> AsRef<T> for ExclusiveUnsized<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
             Self::Box(boxed) => boxed,
@@ -179,7 +179,7 @@ impl<T: ?Sized> AsRef<T> for MutableUnsized<'_, T> {
     }
 }
 
-impl<T: ?Sized> AsMut<T> for MutableUnsized<'_, T> {
+impl<T: ?Sized> AsMut<T> for ExclusiveUnsized<'_, T> {
     fn as_mut(&mut self) -> &mut T {
         match self {
             Self::Box(boxed) => boxed,
@@ -188,30 +188,34 @@ impl<T: ?Sized> AsMut<T> for MutableUnsized<'_, T> {
     }
 }
 
-impl<T: ?Sized> Borrow<T> for MutableUnsized<'_, T> {
+impl<T: ?Sized> Borrow<T> for ExclusiveUnsized<'_, T> {
     fn borrow(&self) -> &T {
         self.as_ref()
     }
 }
 
-impl<T: ?Sized> BorrowMut<T> for MutableUnsized<'_, T> {
+impl<T: ?Sized> BorrowMut<T> for ExclusiveUnsized<'_, T> {
     fn borrow_mut(&mut self) -> &mut T {
         self.as_mut()
     }
 }
 
-impl<T: ?Sized> From<Box<T>> for MutableUnsized<'_, T> {
+impl<T: ?Sized> From<Box<T>> for ExclusiveUnsized<'_, T> {
     fn from(boxed: Box<T>) -> Self {
         Self::Box(boxed)
     }
 }
 
-impl<'a, T: ?Sized> From<&'a mut T> for MutableUnsized<'a, T> {
+impl<'a, T: ?Sized> From<&'a mut T> for ExclusiveUnsized<'a, T> {
     fn from(ref_mut: &'a mut T) -> Self {
         Self::RefMut(ref_mut)
     }
 }
 
+/// A lock providing shared access.
+///
+/// What is meant by 'lock' is a data structure that provides access to an object through a
+/// 'locking' method, which returns an RAII guard instead of a plain reference.
 pub enum ReadLock<'a, T> {
     Plain(T),
     Rc(Rc<T>),
@@ -222,7 +226,8 @@ pub enum ReadLock<'a, T> {
     Ref(&'a T),
 }
 
-pub enum ReadLockGuard<'a, T> {
+/// An RAII guard providing shared `&T` access.
+pub enum ReadGuard<'a, T> {
     RefGuard(Ref<'a, T>),
     MutexGuard(MutexGuard<'a, T>),
     RwLockGuard(RwLockReadGuard<'a, T>),
@@ -230,30 +235,102 @@ pub enum ReadLockGuard<'a, T> {
 }
 
 impl<T> ReadLock<'_, T> {
-    pub fn lock(&self) -> ReadLockGuard<'_, T> {
+    /// Locks the `ReadLock`, returning an RAII guard containing a shared `&T` reference.
+    pub fn lock(&self) -> ReadGuard<T> {
         match self {
-            Self::Plain(plain) => ReadLockGuard::Ref(plain),
-            Self::Rc(rc) => ReadLockGuard::Ref(rc),
-            Self::RcRefCell(rc_ref_cell) => ReadLockGuard::RefGuard(rc_ref_cell.as_ref().borrow()),
-            Self::Arc(arc) => ReadLockGuard::Ref(arc),
-            Self::ArcMutex(arc_mutex) => ReadLockGuard::MutexGuard(
-                arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"),
-            ),
-            Self::ArcRwLock(arc_rw_lock) => ReadLockGuard::RwLockGuard(
+            Self::Plain(plain) => ReadGuard::Ref(plain),
+            Self::Rc(rc) => ReadGuard::Ref(rc),
+            Self::RcRefCell(rc_ref_cell) => ReadGuard::RefGuard(rc_ref_cell.as_ref().borrow()),
+            Self::Arc(arc) => ReadGuard::Ref(arc),
+            Self::ArcMutex(arc_mutex) => {
+                ReadGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(arc_rw_lock) => ReadGuard::RwLockGuard(
                 arc_rw_lock
-                    .as_ref()
                     .read()
                     .expect("failed to lock `std::sync::RwLock`"),
             ),
-            Self::Ref(borrow) => ReadLockGuard::Ref(borrow),
+            Self::Ref(borrow) => ReadGuard::Ref(borrow),
         }
     }
 }
 
-pub enum WriteLock<'a, T> {
-    Plain(T),
+/// A lock providing mutable access.
+///
+/// What is meant by 'lock' is a data structure that provides access to an object through a
+/// 'locking' method, which returns an RAII guard instead of a plain reference.
+pub enum WriteLock<T> {
+    RefCell(RefCell<T>),
     RcRefCell(Rc<RefCell<T>>),
     ArcMutex(Arc<Mutex<T>>),
     ArcRwLock(Arc<RwLock<T>>),
-    RefMut(&'a mut T),
+}
+
+pub enum WriteGuard<'a, T> {
+    RefMutGuard(RefMut<'a, T>),
+    MutexGuard(MutexGuard<'a, T>),
+    RwLockGuard(RwLockWriteGuard<'a, T>),
+}
+
+impl<T> WriteLock<T> {
+    /// Locks the `WriteLock`, returning an RAII guard containing a mutable `&mut T` reference.
+    pub fn lock(&self) -> WriteGuard<T> {
+        match self {
+            Self::RefCell(ref_cell) => WriteGuard::RefMutGuard(ref_cell.borrow_mut()),
+            Self::RcRefCell(ref_cell) => WriteGuard::RefMutGuard(ref_cell.as_ref().borrow_mut()),
+            Self::ArcMutex(mutex) => {
+                WriteGuard::MutexGuard(mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(rw_lock) => WriteGuard::RwLockGuard(
+                rw_lock.write().expect("failed to lock `std::sync::RwLock`"),
+            ),
+        }
+    }
+}
+
+/// A lock providing shared and mutable access.
+///
+/// What is meant by 'lock' is a data structure that provides access to an object through a
+/// 'locking' method, which returns an RAII guard instead of a plain reference.
+pub enum Lock<T> {
+    RefCell(RefCell<T>),
+    RcRefCell(Rc<RefCell<T>>),
+    ArcMutex(Arc<Mutex<T>>),
+    ArcRwLock(Arc<RwLock<T>>),
+}
+
+impl<T> Lock<T> {
+    /// Locks the `Lock`, returning an RAII guard containing a shared `&T` reference.
+    pub fn lock(&self) -> ReadGuard<T> {
+        match self {
+            Self::RefCell(ref_cell) => ReadGuard::RefGuard(ref_cell.borrow()),
+            Self::RcRefCell(rc_ref_cell) => ReadGuard::RefGuard(rc_ref_cell.as_ref().borrow()),
+            Self::ArcMutex(arc_mutex) => {
+                ReadGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(arc_rw_lock) => ReadGuard::RwLockGuard(
+                arc_rw_lock
+                    .read()
+                    .expect("failed to lock `std::sync::RwLock`"),
+            ),
+        }
+    }
+
+    /// Locks the `Lock`, returning an RAII guard containing a mutable `&mut T` reference.
+    pub fn lock_mut(&self) -> WriteGuard<T> {
+        match self {
+            Self::RefCell(ref_cell) => WriteGuard::RefMutGuard(ref_cell.borrow_mut()),
+            Self::RcRefCell(rc_ref_cell) => {
+                WriteGuard::RefMutGuard(rc_ref_cell.as_ref().borrow_mut())
+            }
+            Self::ArcMutex(arc_mutex) => {
+                WriteGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(arc_rw_lock) => WriteGuard::RwLockGuard(
+                arc_rw_lock
+                    .write()
+                    .expect("failed to lock `std::sync::RwLock`"),
+            ),
+        }
+    }
 }
