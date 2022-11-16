@@ -108,7 +108,7 @@ impl<'a, T> From<&'a mut T> for Mutable<'a, T> {
     }
 }
 
-/// A type exposing shared `&T` access to a contained or referenced value, whose size is not known.
+/// A type exposing shared `&T` access to a possibly unsized value.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SharedUnsized<'a, T: ?Sized> {
     Box(Box<T>),
@@ -158,7 +158,7 @@ impl<'a, T: ?Sized> From<&'a T> for SharedUnsized<'a, T> {
     }
 }
 
-/// A type that exposes exclusive access to some value whose size is not known, without interior
+/// A type that exposes exclusive access to some possibly unsized value, without interior
 /// mutability.
 ///
 /// More precisely:
@@ -227,8 +227,21 @@ pub enum ReadLock<'a, T> {
     Ref(&'a T),
 }
 
+/// A lock providing shared access to a possibly unsized value.
+///
+/// What is meant by 'lock' is a data structure that provides access to an object through a
+/// 'locking' method, which returns an RAII guard instead of a plain reference.
+pub enum ReadLockUnsized<'a, T: ?Sized> {
+    Box(Box<T>),
+    Arc(Arc<T>),
+    BoxMutex(Box<Mutex<T>>),
+    ArcMutex(Arc<Mutex<T>>),
+    ArcRwLock(Arc<RwLock<T>>),
+    Ref(&'a T),
+}
+
 /// An RAII guard providing shared `&T` access.
-pub enum ReadGuard<'a, T> {
+pub enum ReadGuard<'a, T: ?Sized> {
     // RefGuard(Ref<'a, T>),
     MutexGuard(MutexGuard<'a, T>),
     RwLockGuard(RwLockReadGuard<'a, T>),
@@ -259,7 +272,31 @@ impl<T> ReadLock<'_, T> {
     }
 }
 
-/// A lock providing mutable access.
+impl<T> ReadLockUnsized<'_, T> {
+    /// Locks the `ReadLockUnsized`, returning an RAII guard containing a shared `&T` reference.
+    pub fn lock(&self) -> ReadGuard<T> {
+        match self {
+            Self::Box(boxed) => ReadGuard::Ref(boxed),
+            // Self::Rc(rc) => ReadGuard::Ref(rc),
+            // Self::RcRefCell(rc_ref_cell) => ReadGuard::RefGuard(rc_ref_cell.as_ref().borrow()),
+            Self::Arc(arc) => ReadGuard::Ref(arc),
+            Self::BoxMutex(box_mutex) => {
+                ReadGuard::MutexGuard(box_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcMutex(arc_mutex) => {
+                ReadGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(arc_rw_lock) => ReadGuard::RwLockGuard(
+                arc_rw_lock
+                    .read()
+                    .expect("failed to lock `std::sync::RwLock`"),
+            ),
+            Self::Ref(borrow) => ReadGuard::Ref(borrow),
+        }
+    }
+}
+
+/// A lock providing mutable access through interior mutability.
 ///
 /// What is meant by 'lock' is a data structure that provides access to an object through a
 /// 'locking' method, which returns an RAII guard instead of a plain reference.
@@ -271,8 +308,18 @@ pub enum WriteLock<T> {
     ArcRwLock(Arc<RwLock<T>>),
 }
 
+/// A lock providing mutable access to a possibly unsized value.
+///
+/// What is meant by 'lock' is a data structure that provides access to an object through a
+/// 'locking' method, which returns an RAII guard instead of a plain reference.
+pub enum WriteLockUnsized<T: ?Sized> {
+    BoxMutex(Box<Mutex<T>>),
+    ArcMutex(Arc<Mutex<T>>),
+    ArcRwLock(Arc<RwLock<T>>),
+}
+
 /// An RAII guard providing mutable `&mut T` access.
-pub enum WriteGuard<'a, T> {
+pub enum WriteGuard<'a, T: ?Sized> {
     // RefMutGuard(RefMut<'a, T>),
     MutexGuard(MutexGuard<'a, T>),
     RwLockGuard(RwLockWriteGuard<'a, T>),
@@ -299,7 +346,28 @@ impl<T> WriteLock<T> {
     }
 }
 
-/// A lock providing shared and mutable access.
+impl<T> WriteLockUnsized<T> {
+    /// Locks the `WriteLockUnsized`, returning an RAII guard containing a mutable `&mut T` reference.
+    pub fn lock(&self) -> WriteGuard<T> {
+        match self {
+            // Self::RefCell(ref_cell) => WriteGuard::RefMutGuard(ref_cell.borrow_mut()),
+            // Self::RcRefCell(ref_cell) => WriteGuard::RefMutGuard(ref_cell.as_ref().borrow_mut()),
+            Self::BoxMutex(box_mutex) => {
+                WriteGuard::MutexGuard(box_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcMutex(arc_mutex) => {
+                WriteGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(arc_rw_lock) => WriteGuard::RwLockGuard(
+                arc_rw_lock
+                    .write()
+                    .expect("failed to lock `std::sync::RwLock`"),
+            ),
+        }
+    }
+}
+
+/// A lock providing shared and mutable access through interior mutability.
 ///
 /// What is meant by 'lock' is a data structure that provides access to an object through a
 /// 'locking' method, which returns an RAII guard instead of a plain reference.
@@ -307,6 +375,17 @@ pub enum Lock<T> {
     // RefCell(RefCell<T>),
     // RcRefCell(Rc<RefCell<T>>),
     Mutex(Mutex<T>),
+    ArcMutex(Arc<Mutex<T>>),
+    ArcRwLock(Arc<RwLock<T>>),
+}
+
+/// A lock providing shared and mutable access to a possibly unsized value through interior
+/// mutability.
+///
+/// What is meant by 'lock' is a data structure that provides access to an object through a
+/// 'locking' method, which returns an RAII guard instead of a plain reference.
+pub enum LockUnsized<T: ?Sized> {
+    BoxMutex(Box<Mutex<T>>),
     ArcMutex(Arc<Mutex<T>>),
     ArcRwLock(Arc<RwLock<T>>),
 }
@@ -340,6 +419,48 @@ impl<T> Lock<T> {
             // }
             Self::Mutex(mutex) => {
                 WriteGuard::MutexGuard(mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcMutex(arc_mutex) => {
+                WriteGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(arc_rw_lock) => WriteGuard::RwLockGuard(
+                arc_rw_lock
+                    .write()
+                    .expect("failed to lock `std::sync::RwLock`"),
+            ),
+        }
+    }
+}
+
+impl<T> LockUnsized<T> {
+    /// Locks the `LockUnsized`, returning an RAII guard containing a shared `&T` reference.
+    pub fn lock(&self) -> ReadGuard<T> {
+        match self {
+            // Self::RefCell(ref_cell) => ReadGuard::RefGuard(ref_cell.borrow()),
+            // Self::RcRefCell(rc_ref_cell) => ReadGuard::RefGuard(rc_ref_cell.as_ref().borrow()),
+            Self::BoxMutex(box_mutex) => {
+                ReadGuard::MutexGuard(box_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcMutex(arc_mutex) => {
+                ReadGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
+            }
+            Self::ArcRwLock(arc_rw_lock) => ReadGuard::RwLockGuard(
+                arc_rw_lock
+                    .read()
+                    .expect("failed to lock `std::sync::RwLock`"),
+            ),
+        }
+    }
+
+    /// Locks the `Lock`, returning an RAII guard containing a mutable `&mut T` reference.
+    pub fn lock_mut(&self) -> WriteGuard<T> {
+        match self {
+            // Self::RefCell(ref_cell) => WriteGuard::RefMutGuard(ref_cell.borrow_mut()),
+            // Self::RcRefCell(rc_ref_cell) => {
+            //     WriteGuard::RefMutGuard(rc_ref_cell.as_ref().borrow_mut())
+            // }
+            Self::BoxMutex(box_mutex) => {
+                WriteGuard::MutexGuard(box_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
             }
             Self::ArcMutex(arc_mutex) => {
                 WriteGuard::MutexGuard(arc_mutex.lock().expect("failed to lock `std::sync::Mutex`"))
