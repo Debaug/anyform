@@ -22,7 +22,7 @@
 //! ```
 //! use anyform::Mutable;
 //! let mut hello = Mutable::Plain("Hi".to_owned());
-//! hello.as_mut().push_str(" :D");
+//! hello.push_str(" :D");
 //! assert_eq!(hello.as_ref(), "Hi :D");
 //! ```
 //!
@@ -50,9 +50,9 @@
 //!     let tx = tx.clone();
 //!     thread::spawn(move || {
 //!         let mut counter = counter.lock_mut();
-//!         *counter.as_mut() += 1;
+//!         *counter += 1;
 //!         // Let the main thread know when we're done.
-//!         if *counter.as_mut() == 10 {
+//!         if *counter == 10 {
 //!             tx.send(()).unwrap();
 //!         }
 //!     });
@@ -70,7 +70,11 @@
 //! guards only implement [`Sync`] though, as they must unlock their corresponding lock on the same
 //! thread it was locked from.
 
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
+};
 
 // TODO: Send & Sync behavior
 
@@ -82,14 +86,6 @@ pub enum Shared<'a, T> {
     Ref(&'a T),
 }
 
-/// A type exposing shared `&T` access to a possibly unsized value.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SharedUnsized<'a, T: ?Sized> {
-    Box(Box<T>),
-    Arc(Arc<T>),
-    Ref(&'a T),
-}
-
 impl<T> AsRef<T> for Shared<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
@@ -97,6 +93,19 @@ impl<T> AsRef<T> for Shared<'_, T> {
             Self::Arc(arc) => arc,
             Self::Ref(borrow) => borrow,
         }
+    }
+}
+
+impl<T> Borrow<T> for Shared<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T> Deref for Shared<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
 
@@ -118,6 +127,14 @@ impl<'a, T> From<&'a T> for Shared<'a, T> {
     }
 }
 
+/// A type exposing shared `&T` access to a possibly unsized value.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SharedUnsized<'a, T: ?Sized> {
+    Box(Box<T>),
+    Arc(Arc<T>),
+    Ref(&'a T),
+}
+
 impl<T: ?Sized> AsRef<T> for SharedUnsized<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
@@ -125,6 +142,19 @@ impl<T: ?Sized> AsRef<T> for SharedUnsized<'_, T> {
             Self::Arc(arc) => arc,
             Self::Ref(borrow) => borrow,
         }
+    }
+}
+
+impl<T: ?Sized> Borrow<T> for SharedUnsized<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T: ?Sized> Deref for SharedUnsized<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
 
@@ -157,18 +187,6 @@ pub enum Mutable<'a, T> {
     RefMut(&'a mut T),
 }
 
-/// A type that exposes exclusive access to some possibly unsized value, without interior
-/// mutability.
-///
-/// More precisely:
-///  - Any shared reference `&MutableUnsized<T>` may be converted to a `&T`;
-///  - Any mutable reference `&mut MutableUnsized<T>` may be converted to a `&mut T`.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MutableUnsized<'a, T: ?Sized> {
-    Box(Box<T>),
-    RefMut(&'a mut T),
-}
-
 impl<T> AsRef<T> for Mutable<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
@@ -178,12 +196,37 @@ impl<T> AsRef<T> for Mutable<'_, T> {
     }
 }
 
+impl<T> Borrow<T> for Mutable<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T> Deref for Mutable<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
 impl<T> AsMut<T> for Mutable<'_, T> {
     fn as_mut(&mut self) -> &mut T {
         match self {
             Self::Plain(plain) => plain,
             Self::RefMut(ref_mut) => ref_mut,
         }
+    }
+}
+
+impl<T> BorrowMut<T> for Mutable<'_, T> {
+    fn borrow_mut(&mut self) -> &mut T {
+        self.as_mut()
+    }
+}
+
+impl<T> DerefMut for Mutable<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut()
     }
 }
 
@@ -199,6 +242,18 @@ impl<'a, T> From<&'a mut T> for Mutable<'a, T> {
     }
 }
 
+/// A type that exposes exclusive access to some possibly unsized value, without interior
+/// mutability.
+///
+/// More precisely:
+///  - Any shared reference `&MutableUnsized<T>` may be converted to a `&T`;
+///  - Any mutable reference `&mut MutableUnsized<T>` may be converted to a `&mut T`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MutableUnsized<'a, T: ?Sized> {
+    Box(Box<T>),
+    RefMut(&'a mut T),
+}
+
 impl<T: ?Sized> AsRef<T> for MutableUnsized<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
@@ -208,12 +263,37 @@ impl<T: ?Sized> AsRef<T> for MutableUnsized<'_, T> {
     }
 }
 
+impl<T: ?Sized> Borrow<T> for MutableUnsized<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T: ?Sized> Deref for MutableUnsized<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
 impl<T: ?Sized> AsMut<T> for MutableUnsized<'_, T> {
     fn as_mut(&mut self) -> &mut T {
         match self {
             Self::Box(boxed) => boxed,
             Self::RefMut(ref_mut) => ref_mut,
         }
+    }
+}
+
+impl<T: ?Sized> BorrowMut<T> for MutableUnsized<'_, T> {
+    fn borrow_mut(&mut self) -> &mut T {
+        self.as_mut()
+    }
+}
+
+impl<T: ?Sized> DerefMut for MutableUnsized<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut()
     }
 }
 
@@ -235,6 +315,30 @@ pub enum ReadGuard<'a, T: ?Sized> {
     RwLockReadGuard(RwLockReadGuard<'a, T>),
     RwLockWriteGuard(RwLockWriteGuard<'a, T>),
     Ref(&'a T),
+}
+
+impl<T: ?Sized> AsRef<T> for ReadGuard<'_, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::MutexGuard(guard) => guard,
+            Self::RwLockReadGuard(guard) => guard,
+            Self::RwLockWriteGuard(guard) => guard,
+            Self::Ref(borrow) => borrow,
+        }
+    }
+}
+
+impl<T: ?Sized> Borrow<T> for ReadGuard<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T: ?Sized> Deref for ReadGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
 }
 
 impl<'a, T> From<MutexGuard<'a, T>> for ReadGuard<'a, T> {
@@ -261,17 +365,6 @@ impl<'a, T> From<&'a T> for ReadGuard<'a, T> {
     }
 }
 
-impl<T> AsRef<T> for ReadGuard<'_, T> {
-    fn as_ref(&self) -> &T {
-        match self {
-            Self::MutexGuard(guard) => &guard,
-            Self::RwLockReadGuard(guard) => &guard,
-            Self::RwLockWriteGuard(guard) => &guard,
-            Self::Ref(borrow) => borrow,
-        }
-    }
-}
-
 /// A lock providing shared access.
 ///
 /// What is meant by 'lock' is a data structure that provides access to an object through a
@@ -292,6 +385,51 @@ pub enum WriteGuard<'a, T: ?Sized> {
     RefMut(&'a mut T),
 }
 
+impl<T> AsRef<T> for WriteGuard<'_, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::MutexGuard(guard) => guard,
+            Self::RwLockWriteGuard(guard) => guard,
+            Self::RefMut(ref_mut) => ref_mut,
+        }
+    }
+}
+
+impl<T> Borrow<T> for WriteGuard<'_, T> {
+    fn borrow(&self) -> &T {
+        self.as_ref()
+    }
+}
+
+impl<T> Deref for WriteGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+impl<T> AsMut<T> for WriteGuard<'_, T> {
+    fn as_mut(&mut self) -> &mut T {
+        match self {
+            Self::MutexGuard(guard) => guard,
+            Self::RwLockWriteGuard(guard) => guard,
+            Self::RefMut(ref_mut) => ref_mut,
+        }
+    }
+}
+
+impl<T> BorrowMut<T> for WriteGuard<'_, T> {
+    fn borrow_mut(&mut self) -> &mut T {
+        self.as_mut()
+    }
+}
+
+impl<T> DerefMut for WriteGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut()
+    }
+}
+
 impl<'a, T> From<MutexGuard<'a, T>> for WriteGuard<'a, T> {
     fn from(guard: MutexGuard<'a, T>) -> Self {
         Self::MutexGuard(guard)
@@ -307,16 +445,6 @@ impl<'a, T> From<RwLockWriteGuard<'a, T>> for WriteGuard<'a, T> {
 impl<'a, T> From<&'a mut T> for WriteGuard<'a, T> {
     fn from(ref_mut: &'a mut T) -> Self {
         Self::RefMut(ref_mut)
-    }
-}
-
-impl<T> AsMut<T> for WriteGuard<'_, T> {
-    fn as_mut(&mut self) -> &mut T {
-        match self {
-            Self::MutexGuard(guard) => guard,
-            Self::RwLockWriteGuard(guard) => guard,
-            Self::RefMut(ref_mut) => ref_mut,
-        }
     }
 }
 
